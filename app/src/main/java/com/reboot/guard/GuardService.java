@@ -16,6 +16,7 @@ public class GuardService extends Service {
     public static final String ACTION_START = "reboot.guard.START";
     public static final String ACTION_STOP = "reboot.guard.STOP";
     public static final String ACTION_TEST = "reboot.guard.TEST";
+    public static final String ACTION_START_AUTO = "reboot.guard.START_AUTO";
 
     private static final String CHANNEL = "reboot_guard";
     private static final int NOTIF_ID = 3021;
@@ -29,6 +30,7 @@ public class GuardService extends Service {
     private String lastSeenPackage = "";
     private long graceUntil = 0L;
     private int bypassCount = 0;
+    private long lastRearmToken = 0L;
 
     private final Runnable monitor = new Runnable() {
         @Override
@@ -55,6 +57,8 @@ public class GuardService extends Service {
                         0
                 );
 
+        lastRearmToken = prefs.getLong("rearmToken", 0L);
+
         createChannel();
     }
 
@@ -72,6 +76,7 @@ public class GuardService extends Service {
 
         if (ACTION_STOP.equals(action)) {
 
+            prefs.edit().putBoolean("guardEnabled", false).apply();
             removeOverlay();
             handler.removeCallbacks(monitor);
 
@@ -79,6 +84,10 @@ public class GuardService extends Service {
             stopSelf();
 
             return START_NOT_STICKY;
+        }
+
+        if (ACTION_START.equals(action) || ACTION_START_AUTO.equals(action)) {
+            prefs.edit().putBoolean("guardEnabled", true).apply();
         }
 
         startForeground(
@@ -100,6 +109,13 @@ public class GuardService extends Service {
     }
 
     private void checkForeground() {
+
+        long token = prefs.getLong("rearmToken", 0L);
+        if (token != lastRearmToken) {
+            lastRearmToken = token;
+            lastSeenPackage = "";
+            graceUntil = 0L;
+        }
 
         if (overlay != null) {
             return;
@@ -563,12 +579,11 @@ public class GuardService extends Service {
 
                     removeOverlay();
 
-                    graceUntil =
-                            System.currentTimeMillis()
-                                    + 2000;
-
-                    lastSeenPackage =
-                            "";
+                    graceUntil = 0L;
+                    lastSeenPackage = "";
+                    long token = System.currentTimeMillis();
+                    lastRearmToken = token;
+                    prefs.edit().putLong("rearmToken", token).apply();
 
                     Intent i =
                             new Intent(
@@ -748,7 +763,7 @@ public class GuardService extends Service {
                         "重启防线运行中"
                 )
                 .setContentText(
-                        "正在持续监测你设定的高风险 App 与时段"
+                        "自动防线常驻中 · 正在监测高风险 App 与时段"
                 )
                 .setContentIntent(pi)
                 .setOngoing(true)
