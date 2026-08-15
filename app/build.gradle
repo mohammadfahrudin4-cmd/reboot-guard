@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.reboot.guard'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.reboot.guard"
+        minSdk 26
+        targetSdk 33
+        versionCode 1
+        versionName "3.0-alpha1"
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
