@@ -45,8 +45,8 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(245, 247, 251));
         scroll.addView(root);
 
-        addTitle("重启防线 V4");
-        addText("自动常驻 · 高风险 App 持续干预", 15, Color.DKGRAY);
+        addTitle("重启防线 V4.1");
+        addText("自动常驻 · 高风险时段严格锁定", 15, Color.DKGRAY);
 
         permissionStatus = addText("", 14, Color.DKGRAY);
 
@@ -119,7 +119,7 @@ public class MainActivity extends Activity {
         });
 
         addText(
-                "说明：V4 开启一次后会记住自动防线状态；手机重启或应用更新后会尝试自动恢复。",
+                "说明：V4.1 在高风险时段内会锁定暂停与规则修改；特殊情况只能通过干预页的紧急解锁临时放行 10 分钟。",
                 13, Color.GRAY
         );
 
@@ -161,6 +161,15 @@ public class MainActivity extends Activity {
     }
 
     private void saveSettings() {
+        if (prefs.getBoolean("guardEnabled", false) && withinRiskWindow()) {
+            Toast.makeText(
+                    this,
+                    "高风险时段内规则已锁定，暂时不能修改。",
+                    Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
         String st = normalizeTime(startTime.getText().toString(), "22:30");
         String et = normalizeTime(endTime.getText().toString(), "01:00");
 
@@ -206,6 +215,15 @@ public class MainActivity extends Activity {
     }
 
     private void stopGuard() {
+        if (withinRiskWindow()) {
+            Toast.makeText(
+                    this,
+                    "高风险时段内不能暂停自动防线；特殊情况请从干预页进入紧急解锁。",
+                    Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
         prefs.edit().putBoolean("guardEnabled", false).apply();
 
         Intent i = new Intent(this, GuardService.class);
@@ -255,6 +273,31 @@ public class MainActivity extends Activity {
                 ? "✅ 自动防线已启用"
                 : "⏸ 自动防线未启用";
         permissionStatus.setText(usage + "\n" + overlay + "\n" + auto);
+    }
+
+    private boolean withinRiskWindow() {
+        String start = prefs.getString("riskStart", "22:30");
+        String end = prefs.getString("riskEnd", "01:00");
+
+        int startMinute = toMinutes(start, 22 * 60 + 30);
+        int endMinute = toMinutes(end, 60);
+
+        Calendar c = Calendar.getInstance();
+        int now = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
+
+        if (startMinute == endMinute) return false;
+        return startMinute < endMinute
+                ? now >= startMinute && now < endMinute
+                : now >= startMinute || now < endMinute;
+    }
+
+    private int toMinutes(String t, int fallback) {
+        try {
+            String[] p = t.split(":");
+            return Integer.parseInt(p[0]) * 60 + Integer.parseInt(p[1]);
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     private String normalizeTime(String s, String fallback) {
