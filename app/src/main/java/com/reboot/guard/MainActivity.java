@@ -16,7 +16,6 @@ import java.util.*;
 
 public class MainActivity extends Activity {
 
-
     private LinearLayout root;
     private SharedPreferences prefs;
     private TextView permissionStatus;
@@ -29,6 +28,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("guard", MODE_PRIVATE);
         buildUi();
+        migrateAndAutoResume();
     }
 
     @Override
@@ -45,8 +45,8 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(245, 247, 251));
         scroll.addView(root);
 
-        addTitle("重启防线 V3");
-        addText("原生执行层 · 高风险 App 干预", 15, Color.DKGRAY);
+        addTitle("重启防线 V4");
+        addText("自动常驻 · 高风险 App 持续干预", 15, Color.DKGRAY);
 
         permissionStatus = addText("", 14, Color.DKGRAY);
 
@@ -96,8 +96,8 @@ public class MainActivity extends Activity {
 
         addSection("④ 防线控制");
         addButton("保存设置", v -> saveSettings());
-        addButton("▶ 启动防线", v -> startGuard());
-        addButton("■ 停止防线", v -> stopGuard());
+        addButton("▶ 开启自动防线", v -> startGuard());
+        addButton("■ 暂停自动防线", v -> stopGuard());
         addButton("测试一次全屏干预", v -> {
             if (!Settings.canDrawOverlays(this)) {
                 Toast.makeText(this, "请先授予悬浮层权限", Toast.LENGTH_SHORT).show();
@@ -110,19 +110,16 @@ public class MainActivity extends Activity {
         });
 
         addSection("⑤ 教练层");
-
-addButton("打开「重启 V2.1」", v -> {
-
-    Intent i = new Intent(
-            this,
-            CoachActivity.class
-    );
-
-    startActivity(i);
-});
+        addButton("打开「重启 V2.1」", v -> {
+            Intent i = new Intent(
+                    this,
+                    CoachActivity.class
+            );
+            startActivity(i);
+        });
 
         addText(
-                "说明：V3 Alpha 只负责跨 App 的检测与干预。你的行为记录、视频、复盘仍由 V2.1 PWA 保存。",
+                "说明：V4 开启一次后会记住自动防线状态；手机重启或应用更新后会尝试自动恢复。",
                 13, Color.GRAY
         );
 
@@ -198,19 +195,46 @@ addButton("打开「重启 V2.1」", v -> {
             return;
         }
 
+        prefs.edit().putBoolean("guardEnabled", true).apply();
+
         Intent i = new Intent(this, GuardService.class);
         i.setAction(GuardService.ACTION_START);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
         else startService(i);
 
-        Toast.makeText(this, "防线已启动", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "自动防线已开启", Toast.LENGTH_SHORT).show();
     }
 
     private void stopGuard() {
+        prefs.edit().putBoolean("guardEnabled", false).apply();
+
         Intent i = new Intent(this, GuardService.class);
         i.setAction(GuardService.ACTION_STOP);
         startService(i);
-        Toast.makeText(this, "防线已停止", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "自动防线已暂停", Toast.LENGTH_SHORT).show();
+    }
+
+    private void migrateAndAutoResume() {
+        // 从旧版本升级到 V4：如果已经选过高风险 App，默认视为曾启用防线。
+        if (!prefs.contains("guardEnabled")) {
+            Set<String> existing = prefs.getStringSet("blockedApps", new HashSet<>());
+            prefs.edit()
+                    .putBoolean("guardEnabled", existing != null && !existing.isEmpty())
+                    .apply();
+        }
+
+        if (!prefs.getBoolean("guardEnabled", false)) return;
+        if (!hasUsageAccess()) return;
+        if (!Settings.canDrawOverlays(this)) return;
+
+        Intent i = new Intent(this, GuardService.class);
+        i.setAction(GuardService.ACTION_START_AUTO);
+
+        try {
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+        } catch (Exception ignored) {
+        }
     }
 
     private boolean hasUsageAccess() {
@@ -227,7 +251,10 @@ addButton("打开「重启 V2.1」", v -> {
         if (permissionStatus == null) return;
         String usage = hasUsageAccess() ? "✅ 使用情况访问" : "❌ 使用情况访问";
         String overlay = Settings.canDrawOverlays(this) ? "✅ 悬浮层" : "❌ 悬浮层";
-        permissionStatus.setText(usage + "\n" + overlay);
+        String auto = prefs.getBoolean("guardEnabled", false)
+                ? "✅ 自动防线已启用"
+                : "⏸ 自动防线未启用";
+        permissionStatus.setText(usage + "\n" + overlay + "\n" + auto);
     }
 
     private String normalizeTime(String s, String fallback) {
