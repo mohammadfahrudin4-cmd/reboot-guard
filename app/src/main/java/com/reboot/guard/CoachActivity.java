@@ -94,6 +94,16 @@ public class CoachActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        // 用户从教练页切到任何其他 App 时，立刻要求防线重新武装。
+        getSharedPreferences("guard", MODE_PRIVATE)
+                .edit()
+                .putLong("rearmToken", System.currentTimeMillis())
+                .apply();
+        super.onPause();
+    }
+
+    @Override
     protected void onDestroy() {
         if (webView != null) {
             webView.stopLoading();
