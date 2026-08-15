@@ -10,8 +10,8 @@ android {
         applicationId "com.reboot.guard"
         minSdk 26
         targetSdk 33
-        versionCode 4
-        versionName "4.0-auto"
+        versionCode 5
+        versionName "4.1-strict"
     }
 
     buildTypes {
