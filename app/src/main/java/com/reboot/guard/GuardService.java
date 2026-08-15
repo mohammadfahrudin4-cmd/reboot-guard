@@ -20,6 +20,9 @@ public class GuardService extends Service {
 
     private static final String CHANNEL = "reboot_guard";
     private static final int NOTIF_ID = 3021;
+    private static final long EMERGENCY_UNLOCK_MS = 10 * 60 * 1000L;
+    private static final int EMERGENCY_WAIT_SEC = 90;
+    private static final String EMERGENCY_PHRASE = "紧急解锁";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -76,6 +79,25 @@ public class GuardService extends Service {
 
         if (ACTION_STOP.equals(action)) {
 
+            // V4.1 严格模式：高风险时段内不允许直接停掉防线。
+            if (withinRiskWindow()) {
+                prefs.edit().putBoolean("guardEnabled", true).apply();
+
+                startForeground(
+                        NOTIF_ID,
+                        buildNotification()
+                );
+                handler.removeCallbacks(monitor);
+                handler.post(monitor);
+
+                Toast.makeText(
+                        this,
+                        "高风险时段内防线已锁定；特殊情况请使用干预页的紧急解锁。",
+                        Toast.LENGTH_LONG
+                ).show();
+                return START_STICKY;
+            }
+
             prefs.edit().putBoolean("guardEnabled", false).apply();
             removeOverlay();
             handler.removeCallbacks(monitor);
@@ -115,6 +137,19 @@ public class GuardService extends Service {
             lastRearmToken = token;
             lastSeenPackage = "";
             graceUntil = 0L;
+        }
+
+        long now = System.currentTimeMillis();
+        long emergencyUntil = prefs.getLong("emergencyUntil", 0L);
+
+        if (emergencyUntil > 0L && now >= emergencyUntil) {
+            prefs.edit().remove("emergencyUntil").apply();
+            emergencyUntil = 0L;
+            lastSeenPackage = "";
+        }
+
+        if (now < emergencyUntil) {
+            return;
         }
 
         if (overlay != null) {
@@ -165,9 +200,6 @@ public class GuardService extends Service {
         ) {
             return;
         }
-
-        long now =
-                System.currentTimeMillis();
 
         if (
                 now < graceUntil
@@ -510,23 +542,31 @@ public class GuardService extends Service {
                 buttonLp()
         );
 
-        Button continueBtn =
-                darkButton(
-                        "倒计时结束后才能继续"
-                );
+        final Button continueBtn;
 
-        continueBtn.setEnabled(
-                false
-        );
+        if (test) {
+            continueBtn =
+                    darkButton(
+                            "倒计时结束后关闭测试"
+                    );
 
-        panel.addView(
-                continueBtn,
-                buttonLp()
-        );
+            continueBtn.setEnabled(
+                    false
+            );
+
+            panel.addView(
+                    continueBtn,
+                    buttonLp()
+            );
+        } else {
+            continueBtn = null;
+        }
 
         TextView note =
                 text(
-                        "离开后再次打开风险 App，防线会重新触发。",
+                        test
+                                ? "测试模式不会改变你的正式保护规则。"
+                                : "严格模式：高风险时段内没有“一键继续”。离开后再次打开风险 App，防线会重新触发。",
                         13,
                         Color.rgb(
                                 148,
@@ -542,6 +582,55 @@ public class GuardService extends Service {
         panel.addView(
                 note
         );
+
+        if (!test) {
+            TextView emergencyHint =
+                    text(
+                            "特殊情况：按住这里 8 秒进入紧急解锁",
+                            12,
+                            Color.rgb(
+                                    100,
+                                    116,
+                                    139
+                            )
+                    );
+
+            emergencyHint.setGravity(
+                    Gravity.CENTER
+            );
+
+            LinearLayout.LayoutParams emergencyLp =
+                    new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                    );
+
+            emergencyLp.topMargin = dp(24);
+            panel.addView(emergencyHint, emergencyLp);
+
+            final Runnable openEmergency =
+                    () -> {
+                        if (overlay != null) {
+                            showEmergencyUnlock(source);
+                        }
+                    };
+
+            emergencyHint.setOnTouchListener(
+                    (v, event) -> {
+                        switch (event.getActionMasked()) {
+                            case MotionEvent.ACTION_DOWN:
+                                handler.postDelayed(openEmergency, 8000);
+                                return true;
+                            case MotionEvent.ACTION_UP:
+                            case MotionEvent.ACTION_CANCEL:
+                                handler.removeCallbacks(openEmergency);
+                                return true;
+                            default:
+                                return true;
+                        }
+                    }
+            );
+        }
 
         leave.setOnClickListener(
                 v -> {
@@ -630,15 +719,20 @@ public class GuardService extends Service {
                                         <= 0
                         ) {
 
-                            continueBtn.setEnabled(
-                                    true
-                            );
+                            if (test && continueBtn != null) {
+                                continueBtn.setEnabled(
+                                        true
+                                );
 
-                            continueBtn.setText(
-                                    test
-                                            ? "关闭测试"
-                                            : "暂时继续 20 秒"
-                            );
+                                continueBtn.setText(
+                                        "关闭测试"
+                                );
+                            } else {
+                                countdown.setText(
+                                        "请选择离开或进入重启"
+                                );
+                                countdown.setTextSize(22);
+                            }
 
                             return;
                         }
@@ -655,31 +749,11 @@ public class GuardService extends Service {
                 1000
         );
 
-        continueBtn.setOnClickListener(
-                v -> {
-
-                    removeOverlay();
-
-                    if (!test) {
-
-                        bypassCount++;
-
-                        prefs.edit()
-                                .putInt(
-                                        "bypassCount",
-                                        bypassCount
-                                )
-                                .apply();
-
-                        graceUntil =
-                                System.currentTimeMillis()
-                                        + 20_000;
-
-                        lastSeenPackage =
-                                "";
-                    }
-                }
-        );
+        if (test && continueBtn != null) {
+            continueBtn.setOnClickListener(
+                    v -> removeOverlay()
+            );
+        }
 
         int type =
                 Build.VERSION.SDK_INT
@@ -710,6 +784,155 @@ public class GuardService extends Service {
                 overlay,
                 lp
         );
+    }
+
+    private void showEmergencyUnlock(String source) {
+
+        removeOverlay();
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER_HORIZONTAL);
+        panel.setPadding(dp(24), dp(42), dp(24), dp(24));
+        panel.setBackgroundColor(Color.rgb(17, 24, 39));
+
+        TextView tag = text(
+                "特殊情况通道",
+                14,
+                Color.rgb(148, 163, 184)
+        );
+        tag.setGravity(Gravity.CENTER);
+        panel.addView(tag);
+
+        TextView title = text(
+                "紧急解锁不会关闭防线",
+                26,
+                Color.WHITE
+        );
+        title.setGravity(Gravity.CENTER);
+        title.setTypeface(null, 1);
+        panel.addView(title);
+
+        TextView desc = text(
+                "仅用于确有必要的特殊情况。完成 90 秒冷静等待并输入“紧急解锁”后，可临时放行 10 分钟；到期自动恢复。",
+                15,
+                Color.rgb(203, 213, 225)
+        );
+        desc.setGravity(Gravity.CENTER);
+        panel.addView(desc);
+
+        TextView countdown = text(
+                format(EMERGENCY_WAIT_SEC),
+                52,
+                Color.WHITE
+        );
+        countdown.setGravity(Gravity.CENTER);
+        countdown.setTypeface(null, 1);
+
+        LinearLayout.LayoutParams countLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        countLp.topMargin = dp(28);
+        countLp.bottomMargin = dp(18);
+        panel.addView(countdown, countLp);
+
+        EditText phrase = new EditText(this);
+        phrase.setHint("输入：" + EMERGENCY_PHRASE);
+        phrase.setSingleLine(true);
+        phrase.setTextColor(Color.WHITE);
+        phrase.setHintTextColor(Color.rgb(148, 163, 184));
+        panel.addView(
+                phrase,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dp(56)
+                )
+        );
+
+        Button unlock = darkButton("等待结束后临时解锁 10 分钟");
+        unlock.setEnabled(false);
+        panel.addView(unlock, buttonLp());
+
+        Button cancel = darkButton("返回严格干预");
+        panel.addView(cancel, buttonLp());
+
+        TextView warning = text(
+                "这不是永久关闭，也不会修改高风险时段或 App 列表。",
+                12,
+                Color.rgb(148, 163, 184)
+        );
+        warning.setGravity(Gravity.CENTER);
+        panel.addView(warning);
+
+        int type = Build.VERSION.SDK_INT >= 26
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
+
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                type,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+        );
+
+        lp.gravity = Gravity.TOP | Gravity.START;
+        overlay = panel;
+        wm.addView(overlay, lp);
+
+        final int[] remain = {EMERGENCY_WAIT_SEC};
+        Runnable tick = new Runnable() {
+            @Override
+            public void run() {
+                if (overlay != panel) return;
+
+                remain[0]--;
+                countdown.setText(format(Math.max(0, remain[0])));
+
+                if (remain[0] <= 0) {
+                    unlock.setEnabled(true);
+                    unlock.setText("确认临时解锁 10 分钟");
+                    return;
+                }
+
+                handler.postDelayed(this, 1000);
+            }
+        };
+        handler.postDelayed(tick, 1000);
+
+        cancel.setOnClickListener(v -> {
+            removeOverlay();
+            showOverlay(source, false);
+        });
+
+        unlock.setOnClickListener(v -> {
+            String entered = phrase.getText().toString().trim();
+            if (!EMERGENCY_PHRASE.equals(entered)) {
+                Toast.makeText(
+                        this,
+                        "请输入完整的“" + EMERGENCY_PHRASE + "”",
+                        Toast.LENGTH_SHORT
+                ).show();
+                return;
+            }
+
+            long until = System.currentTimeMillis() + EMERGENCY_UNLOCK_MS;
+            prefs.edit()
+                    .putLong("emergencyUntil", until)
+                    .apply();
+
+            graceUntil = until;
+            lastSeenPackage = "";
+            removeOverlay();
+
+            Toast.makeText(
+                    this,
+                    "特殊情况已临时放行 10 分钟；到期自动恢复。",
+                    Toast.LENGTH_LONG
+            ).show();
+        });
     }
 
     private void removeOverlay() {
