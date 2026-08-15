@@ -478,6 +478,91 @@ public class GuardService extends Service {
                 sourceText
         );
 
+        // V4.1.2: 紧急入口固定放在页面上半部，避免小屏手机底部内容被挤出屏幕。
+        if (!test) {
+            Button emergencyHold =
+                    darkButton(
+                            "⚠ 特殊情况：持续按住 8 秒"
+                    );
+
+            emergencyHold.setTextSize(13);
+            emergencyHold.setMinHeight(dp(52));
+            panel.addView(
+                    emergencyHold,
+                    buttonLp()
+            );
+
+            TextView emergencyState =
+                    text(
+                            "只有持续按住才会进入；松手立即取消。",
+                            11,
+                            Color.rgb(
+                                    100,
+                                    116,
+                                    139
+                            )
+                    );
+            emergencyState.setGravity(Gravity.CENTER);
+            panel.addView(emergencyState);
+
+            final long[] holdStart = {0L};
+            final Runnable[] holdTicker = new Runnable[1];
+
+            holdTicker[0] = new Runnable() {
+                @Override
+                public void run() {
+                    if (overlay != panel || !emergencyHold.isPressed()) {
+                        return;
+                    }
+
+                    long elapsed = SystemClock.elapsedRealtime() - holdStart[0];
+                    long remainMs = Math.max(0L, 8000L - elapsed);
+                    int remainSec = (int) ((remainMs + 999L) / 1000L);
+
+                    if (remainMs <= 0L) {
+                        emergencyHold.setPressed(false);
+                        handler.removeCallbacks(holdTicker[0]);
+                        showEmergencyUnlock(source);
+                        return;
+                    }
+
+                    emergencyHold.setText(
+                            "继续按住 " + remainSec + " 秒"
+                    );
+                    emergencyState.setText(
+                            "松手会取消进入紧急通道"
+                    );
+                    handler.postDelayed(this, 100);
+                }
+            };
+
+            emergencyHold.setOnTouchListener(
+                    (v, event) -> {
+                        switch (event.getActionMasked()) {
+                            case MotionEvent.ACTION_DOWN:
+                                holdStart[0] = SystemClock.elapsedRealtime();
+                                emergencyHold.setPressed(true);
+                                emergencyHold.setText("继续按住 8 秒");
+                                emergencyState.setText("正在确认特殊情况……");
+                                handler.removeCallbacks(holdTicker[0]);
+                                handler.post(holdTicker[0]);
+                                return true;
+
+                            case MotionEvent.ACTION_UP:
+                            case MotionEvent.ACTION_CANCEL:
+                                handler.removeCallbacks(holdTicker[0]);
+                                emergencyHold.setPressed(false);
+                                emergencyHold.setText("特殊情况：持续按住 8 秒");
+                                emergencyState.setText("只有持续按住才会进入；松手立即取消。");
+                                return true;
+
+                            default:
+                                return true;
+                        }
+                    }
+            );
+        }
+
         int waitSec =
                 test
                         ? 5
@@ -583,54 +668,7 @@ public class GuardService extends Service {
                 note
         );
 
-        if (!test) {
-            TextView emergencyHint =
-                    text(
-                            "特殊情况：按住这里 8 秒进入紧急解锁",
-                            12,
-                            Color.rgb(
-                                    100,
-                                    116,
-                                    139
-                            )
-                    );
 
-            emergencyHint.setGravity(
-                    Gravity.CENTER
-            );
-
-            LinearLayout.LayoutParams emergencyLp =
-                    new LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                    );
-
-            emergencyLp.topMargin = dp(24);
-            panel.addView(emergencyHint, emergencyLp);
-
-            final Runnable openEmergency =
-                    () -> {
-                        if (overlay != null) {
-                            showEmergencyUnlock(source);
-                        }
-                    };
-
-            emergencyHint.setOnTouchListener(
-                    (v, event) -> {
-                        switch (event.getActionMasked()) {
-                            case MotionEvent.ACTION_DOWN:
-                                handler.postDelayed(openEmergency, 8000);
-                                return true;
-                            case MotionEvent.ACTION_UP:
-                            case MotionEvent.ACTION_CANCEL:
-                                handler.removeCallbacks(openEmergency);
-                                return true;
-                            default:
-                                return true;
-                        }
-                    }
-            );
-        }
 
         leave.setOnClickListener(
                 v -> {
