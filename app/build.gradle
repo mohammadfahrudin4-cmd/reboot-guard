@@ -10,8 +10,8 @@ android {
         applicationId "com.reboot.guard"
         minSdk 26
         targetSdk 33
-        versionCode 1
-        versionName "3.0-alpha1"
+        versionCode 4
+        versionName "4.0-auto"
     }
 
     buildTypes {
@@ -19,7 +19,6 @@ android {
             applicationIdSuffix ".debug"
             versionNameSuffix "-debug"
         }
-
         release {
             minifyEnabled false
         }
