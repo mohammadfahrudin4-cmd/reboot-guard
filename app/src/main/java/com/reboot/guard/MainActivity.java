@@ -110,10 +110,16 @@ public class MainActivity extends Activity {
         });
 
         addSection("⑤ 教练层");
-        addButton("打开「重启 V2.1」", v -> {
-            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(PWA_URL));
-            startActivity(i);
-        });
+
+addButton("打开「重启 V2.1」", v -> {
+
+    Intent i = new Intent(
+            this,
+            CoachActivity.class
+    );
+
+    startActivity(i);
+});
 
         addText(
                 "说明：V3 Alpha 只负责跨 App 的检测与干预。你的行为记录、视频、复盘仍由 V2.1 PWA 保存。",
